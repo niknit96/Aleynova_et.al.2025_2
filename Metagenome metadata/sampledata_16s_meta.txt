@@ -5,5 +5,3 @@ S25	SRR35674575	Solaris (Sick)	Leaf	Merzling × Geisenheim 6493 cv. Solaris 	yes
 S26	SRR35674574	Solaris (Sick)	Leaf	Merzling × Geisenheim 6493 cv. Solaris 	yes
 S37-2	SRR25433200	Alpha (Healthy)	Leaf	Vitis labrusca × Vitis riparia cv. Alpha 	no
 S38-2	SRR25433199	Alpha (Healthy)	Leaf	Vitis labrusca × Vitis riparia cv. Alpha 	no
-S39-2	SRR25433228	Alpha (Healthy)	Stem	Vitis labrusca × Vitis riparia cv. Alpha 	no
-S40-2	SRR25433227	Alpha (Healthy)	Stem	Vitis labrusca × Vitis riparia cv. Alpha 	no
