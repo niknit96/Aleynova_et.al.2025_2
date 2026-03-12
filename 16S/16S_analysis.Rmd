@@ -1,0 +1,228 @@
+```{r setup}
+knitr::opts_chunk$set(
+	error = TRUE,
+	message = TRUE
+)
+
+mycolors = c("#69d2e7", "#a7dbd8", "#e0e4cc", "#f38630", "#fa6900", "#fc9d9a", "#f9cdad", 
+"#c8c8a9", "#83af9b", "#ecd078", "#d95b43", "#542437", "#53777a", 
+"#4ecdc4", "#c7f464", "#ff6b6b", "#c44d58", "#774f38", "#e08e79", "#f1d4af", 
+"#c5e0dc", "#018BFF", "#01FF61", "#FFD101", "#C02727", "#C177C7", "#EBBAE3", "#BAEBC4", "#397DD7", "#6FE8D9")
+```
+
+```{r}
+set.seed(123)
+
+library(phyloseq)
+library(microeco)
+library(file2meco)
+library(tidyverse)
+library(microbiome)
+library(knitr)
+library(DT)
+library(RColorBrewer)
+library(microViz)
+library(ggsankey)
+library(ComplexHeatmap)
+library(ggpubr)
+library(gridExtra)
+library(grid)
+library(forcats)
+library(qiime2R)
+library(Biostrings)
+library(ggpubr)
+```
+
+## Import
+```{r}
+meco <- readRDS("meco_blast.rds")
+```
+
+## Fix tax table
+```{r}
+tax_meta = meco$tax_table
+
+tax_rows = rownames(tax_meta)
+t = apply(tax_meta, 2, function(x) str_replace_all(x, ".__$", "Unclassified"))
+t = apply(t, 2, function(x) str_replace_all(x, ".*_sp", "Unclassified"))
+t = apply(t, 2, function(x) str_replace_all(x, "s__metagenome", "Unclassified"))
+
+rownames(t) = tax_rows
+tax_meta = t
+
+ASV = apply(tax_meta, 1, function(x) grep("Unclassified",x , value = TRUE, invert = TRUE)[length(grep("Unclassified",x , value = TRUE, invert = TRUE))])
+
+ASV = ifelse(ASV == "character(0)", "Unclassified", ASV)
+
+ASV = paste("[ASV", c(1:length(rownames(meco$tax_table))), "] ", ASV, sep = "")
+meco$tax_table = as.data.frame(tax_meta)
+meco$tax_table$ASV = ASV
+
+```
+## Rarefaction
+```{r}
+meco_rf <- clone(meco)
+meco_rf$rarefy_samples(sample.size = 5000)
+meco_rf$tidy_dataset()
+```
+
+# ASV table
+```{r}
+tmp <- clone(meco_rf)
+tmp$filter_taxa(rel_abund = 0.0001, freq = 0)
+ASV_id = as.data.frame(tmp$rep_fasta)
+ASV_id$ASV_id = rownames(ASV_id)
+Taxonomy = tmp$tax_table
+Taxonomy$ASV_id = rownames(Taxonomy)
+ASV_id = left_join(ASV_id, Taxonomy, by = "ASV_id")
+ASV_id = as_tibble(ASV_id)
+
+bar = clone(tmp)
+bar = bar$merge_samples("Treatment")
+t1 <- trans_abund$new(dataset = bar, taxrank = "ASV", ntaxa = 1000, delete_taxonomy_prefix = F)
+
+Treatment = pivot_wider(t1$data_abund[,c("Taxonomy", "Sample", "Abundance")], names_from = "Sample", values_from = "Abundance")
+colnames(Treatment) = c("ASV", as.character(unique(meco_rf$sample_table$Treatment)))
+
+
+
+ASV = left_join(ASV_id, Treatment, by = "ASV")
+ASV = ASV[, c("x", "Kingdom","Phylum","Class","Order","Family","Genus","Species","ASV", as.character(unique(meco_rf$sample_table$Treatment)))]
+colnames(ASV) = c("DNA sequence", "Kingdom","Phylum","Class","Order","Family","Genus","Species","ASV",as.character(unique(meco_rf$sample_table$Treatment)))
+
+
+write.table(ASV, "../Table S2. ASVs (16S).txt", quote = F, sep = "\t")
+```
+
+## Bray-curtis (Treatment)
+```{r fig.width=6, fig.height=6}
+tmp <- clone(meco_rf)
+tmp$sample_table$Treatment = factor(tmp$sample_table$Treatment, c("Control","Agro","Curt","Gord","Pseu","Sphi","Xant","Baci","Pant","Erwi","Fron"))
+tmp$filter_taxa(rel_abund = 0.0001, freq = 0)
+tmp$cal_betadiv()
+t1 <- trans_beta$new(dataset = tmp, group = "Treatment", measure = "bray")
+t1$cal_ordination(method = "PCoA")
+t1$plot_ordination(plot_color = "Type", plot_type = c("point"), plot_shape = "Treatment",
+shape_values = c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23)) + 
+	guides(
+		color = guide_legend(order = 1),
+		fill = guide_legend(order = 1),
+	) + 
+	labs(
+		color = "Type",
+		fill = "Treatment"
+	)
+ggsave("../Bray-curtis (Treatment) (16S).png", width=6, height=5, dpi=400)
+```
+
+## Shannon (Treatment) bact
+```{r}
+tmp <- clone(meco_rf)
+tmp$sample_table <- subset(tmp$sample_table, Type %in% c("Bacteria", "Control"))
+tmp$sample_table$Treatment = factor(tmp$sample_table$Treatment, c("Control","Agro","Curt","Gord","Pseu","Sphi","Xant","Baci","Pant","Erwi","Fron")) 
+tmp$tidy_dataset()
+```
+```{r fig.width=5, fig.height=6}
+t1 <- trans_alpha$new(dataset = tmp, group = "Treatment")
+t1$cal_diff(method = "anova")
+t1$plot_alpha(measure = "Shannon")
+ggsave("../Shannon (Treatment) (16S).png", width=6, height=6, dpi=400)
+```
+
+```{r}
+tmp <- clone(meco_rf)
+tmp$filter_taxa(rel_abund = 0.0001, freq = 0)
+```
+## bar plot (Class)
+```{r}
+bar = clone(tmp)
+bar = bar$merge_samples("Treatment")
+t1 <- trans_abund$new(dataset = bar, taxrank = "Class", ntaxa = 15, delete_taxonomy_prefix = F)
+```
+```{r fig.width=5, fig.height=6}
+barplot <- function(order_x = unique(t1$data_abund$Sample), order_tax = t1$data_taxanames, path, width = 10, height = 10, dpi = 400) {
+p = t1$plot_bar(others_color = "grey70", xtext_keep = TRUE, legend_text_italic = FALSE,
+	color_values = mycolors,
+	order_x = order_x, xtext_angle = 45)
+p$data$Taxonomy = factor(p$data$Taxonomy, rev(c(order_tax[order_tax != "Unclassified"], "Unclassified", "Others")))
+
+p = p +
+geom_text(aes(x = Sample, y = Abundance, 
+		label = ifelse(Abundance > 5, scales::percent(Abundance, scale = 1, accuracy = 1), ""), 
+		group = Taxonomy),
+		inherit.aes = FALSE, position = position_stack(vjust = 0.5), col = "black") +
+scale_fill_manual(
+    values = c(mycolors[1:length(order_tax)-1], "grey90", "grey70"),
+    breaks = c(order_tax[order_tax != "Unclassified"], "Unclassified", "Others")) +
+guides(fill = guide_legend(reverse = TRUE, ncol = 1))
+
+legend <- get_legend(p)
+plot_without_legend <- p + theme(legend.position = "none")
+
+ggarrange(plot_without_legend)
+ggsave(paste0(path, ".png"), width=width, height=height, dpi=dpi)
+
+ggarrange(legend)
+ggsave(paste0(path, " legend.png"), width=width, height=height, dpi=dpi)
+
+}
+
+path = "../fig 1. Treatment bar plot (Class) (16S)"
+barplot(path = path, width = 6, height = 6, order_x = c("Control","Agro","Curt","Gord","Pseu","Sphi","Xant","Baci","Pant","Erwi","Fron"))
+```
+
+## bar plot (Order)
+```{r}
+bar = clone(tmp)
+bar = bar$merge_samples("Treatment")
+t1 <- trans_abund$new(dataset = bar, taxrank = "Order", ntaxa = 15, delete_taxonomy_prefix = F)
+```
+```{r fig.width=5, fig.height=6}
+path = "../fig 1. Treatment bar plot (Order) (16S)"
+barplot(path = path, width = 6, height = 6, order_x = c("Control","Agro","Curt","Gord","Pseu","Sphi","Xant","Baci","Pant","Erwi","Fron"))
+```
+
+## bar plot (Family)
+```{r}
+bar = clone(tmp)
+bar = bar$merge_samples("Treatment")
+t1 <- trans_abund$new(dataset = bar, taxrank = "Family", ntaxa = 16, delete_taxonomy_prefix = F)
+```
+```{r fig.width=5, fig.height=6}
+path = "../fig 1. Treatment bar plot (Family) (16S)"
+barplot(path = path, width = 6, height = 6, order_x = c("Control","Agro","Curt","Gord","Pseu","Sphi","Xant","Baci","Pant","Erwi","Fron"))
+```
+
+## Heatmap
+```{r}
+tmp <- clone(meco_rf)
+tmp$filter_taxa(rel_abund = 0.0001, freq = 0)
+tmp$tidy_dataset()
+```
+
+```{r }
+
+psq <- meco2phyloseq(tmp)
+
+top = as.character(tax_table(psq)[top_taxa(psq, n = 50), "ASV"])
+psq = psq %>%
+	merge_samples("Treatment") %>%
+	tax_transform("compositional", rank = "ASV") %>%
+	tax_select(top, ranks_searched = "all", strict_matches = T) 
+
+
+
+png("../Heatmap Treatment (16S).png", width=10, height=10, units = "in", res=400)
+htmp = psq %>%
+	comp_heatmap(name = "Relative abundance", sample_names_show = T, numbers_use_counts = FALSE,
+		numbers = heat_numbers(decimals = 3, fontsize = 8, col = "black"), cluster_columns = T,
+		row_names_gp = gpar(fontsize = 8),
+		colors = heat_palette(palette = c("white", "red")),
+		row_names_max_width = max_text_width("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+		column_names_gp = gpar(fontsize = 9),
+		column_names_rot = 45,
+		column_names_centered = F
+	) 
+draw(htmp, heatmap_legend_side = "bottom")
+dev.off()
+```
